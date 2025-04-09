@@ -10,6 +10,9 @@ import {
   DragEndEvent,
   DragOverlay,
   UniqueIdentifier,
+  DragStartEvent,
+  useDraggable,
+  useDroppable,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -36,6 +39,17 @@ import {
   CreditCard,
   AlertTriangle,
   MessageSquare,
+  List,
+  Kanban,
+  ChevronDown,
+  ArrowUpDown,
+  ChevronUp,
+  MoveHorizontal,
+  Copy,
+  Send,
+  Loader2,
+  ClipboardCheck,
+  BellRing,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +62,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -207,6 +222,59 @@ const mockLeads: Lead[] = [
   },
 ];
 
+// Function to generate AI email script based on lead stage
+async function generateEmailScript(lead: Lead): Promise<string> {
+  try {
+    // Call to Python backend service instead of local simulation
+    const response = await fetch("http://localhost:5000/api/ai/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ lead }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.response;
+  } catch (error) {
+    console.error("Error generating email script:", error);
+    return "An error occurred while generating the email script. Please try again.";
+  }
+}
+
+// Function to generate AI follow-up recommendations
+async function generateFollowUpRecommendation(
+  lead: Lead,
+  prompt: string
+): Promise<string> {
+  try {
+    const response = await fetch("http://localhost:5000/api/ai/followup", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        lead,
+        prompt,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.response;
+  } catch (error) {
+    console.error("Error generating follow-up recommendation:", error);
+    return "An error occurred while generating recommendations. Please try again.";
+  }
+}
+
 const LeadManagement: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>(mockLeads);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -217,6 +285,26 @@ const LeadManagement: React.FC = () => {
   const [activeDragId, setActiveDragId] = useState<UniqueIdentifier | null>(
     null
   );
+  const [viewMode, setViewMode] = useState<"kanban" | "table">("kanban");
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof Lead | "";
+    direction: "asc" | "desc";
+  }>({ key: "", direction: "asc" });
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+  const [emailScript, setEmailScript] = useState("");
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [customEmail, setCustomEmail] = useState("");
+  const [notification, setNotification] = useState<{
+    show: boolean;
+    message: string;
+    type: "success" | "error";
+  }>({ show: false, message: "", type: "success" });
+  const [followUpPrompt, setFollowUpPrompt] = useState<string>("");
+  const [followUpRecommendation, setFollowUpRecommendation] = useState("");
+  const [isGeneratingFollowUp, setIsGeneratingFollowUp] = useState(false);
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
+  const [reportType, setReportType] = useState<ReportType>("pipeline");
+  const [reportPrompt, setReportPrompt] = useState("");
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -310,8 +398,184 @@ const LeadManagement: React.FC = () => {
     setActiveDragId(null);
   };
 
-  const handleDragStart = (event: { active: { id: UniqueIdentifier } }) => {
+  const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(event.active.id);
+  };
+
+  // Sort function for table view
+  const handleSort = (key: keyof Lead) => {
+    setSortConfig({
+      key,
+      direction:
+        sortConfig.key === key && sortConfig.direction === "asc"
+          ? "desc"
+          : "asc",
+    });
+  };
+
+  // Sort the leads for table view
+  const sortedLeads = useMemo(() => {
+    if (!sortConfig.key) return filteredLeads;
+
+    return [...filteredLeads].sort((a, b) => {
+      if (sortConfig.key === "") return 0;
+
+      const aValue = a[sortConfig.key as keyof Lead];
+      const bValue = b[sortConfig.key as keyof Lead];
+
+      // Handle potential undefined values or different types
+      if (aValue === undefined && bValue === undefined) return 0;
+      if (aValue === undefined) return 1; // undefined values go last
+      if (bValue === undefined) return -1;
+
+      // Handle date objects separately
+      if (aValue instanceof Date && bValue instanceof Date) {
+        return sortConfig.direction === "asc"
+          ? aValue.getTime() - bValue.getTime()
+          : bValue.getTime() - aValue.getTime();
+      }
+
+      // Convert to strings for comparison if different types
+      const aString = String(aValue);
+      const bString = String(bValue);
+
+      if (aString < bString) {
+        return sortConfig.direction === "asc" ? -1 : 1;
+      }
+      if (aString > bString) {
+        return sortConfig.direction === "asc" ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [filteredLeads, sortConfig]);
+
+  // Table row component with drag functionality
+  const TableRow = ({ lead }: { lead: Lead }) => {
+    const { attributes, listeners, setNodeRef, transform } = useDraggable({
+      id: lead.id,
+      data: { type: "lead", lead },
+    });
+
+    const style = transform
+      ? {
+          transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        }
+      : undefined;
+
+    return (
+      <tr
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-grab"
+        onClick={() => setSelectedLead(lead)}
+      >
+        <td className="px-4 py-3 text-gray-900 dark:text-white">
+          <div className="flex items-center">
+            <MoveHorizontal className="h-4 w-4 mr-2 text-gray-400" />
+            {lead.name}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-gray-900 dark:text-white">
+          {lead.company}
+        </td>
+        <td className="px-4 py-3">
+          <div
+            className={cn(
+              "px-2 py-1 text-xs font-medium rounded-full inline-flex items-center",
+              `bg-${getStatusColor(lead.status)}-100 text-${getStatusColor(
+                lead.status
+              )}-800`,
+              `dark:bg-${getStatusColor(
+                lead.status
+              )}-900/50 dark:text-${getStatusColor(lead.status)}-300`
+            )}
+          >
+            <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-current"></span>
+            {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-gray-900 dark:text-white">
+          <div
+            className={cn(
+              "text-xs font-semibold rounded-full px-1.5 py-0.5 inline-flex items-center",
+              getScoreBadgeClass(lead.score)
+            )}
+          >
+            {lead.score}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-gray-900 dark:text-white">
+          ${lead.value?.toLocaleString() || "0"}
+        </td>
+        <td className="px-4 py-3 text-gray-900 dark:text-white">
+          {lead.nextFollowUp.toLocaleDateString()}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex gap-1 flex-wrap">
+            {lead.tags.slice(0, 2).map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+              >
+                {tag}
+              </span>
+            ))}
+            {lead.tags.length > 2 && (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                +{lead.tags.length - 2}
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-right">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedLead(lead);
+              setIsEditingLead(true);
+            }}
+          >
+            <Edit3 className="h-4 w-4" />
+          </Button>
+        </td>
+      </tr>
+    );
+  };
+
+  // Column Droppable component
+  const DropColumn = ({
+    id,
+    children,
+  }: {
+    id: string;
+    children: React.ReactNode;
+  }) => {
+    const { setNodeRef } = useDroppable({
+      id,
+    });
+
+    return (
+      <div ref={setNodeRef} className="w-full h-full">
+        {children}
+      </div>
+    );
+  };
+
+  // Get appropriate style for score badge
+  const getScoreBadgeClass = (score: number) => {
+    if (score >= 90)
+      return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+    if (score >= 70)
+      return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+    if (score >= 50)
+      return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
+    if (score >= 30)
+      return "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400";
+    return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
   };
 
   // Define Lead Card component for DnD
@@ -438,8 +702,129 @@ const LeadManagement: React.FC = () => {
     );
   };
 
+  // Handle email follow-up
+  const handleEmailFollowUp = async (lead: Lead) => {
+    setSelectedLead(lead);
+    setIsEmailDialogOpen(true);
+    setIsGeneratingScript(true);
+
+    try {
+      const script = await generateEmailScript(lead);
+      setEmailScript(script);
+      setCustomEmail(script);
+    } catch (error) {
+      console.error("Error generating email script:", error);
+      showNotification(
+        "Failed to generate email script. Please try again.",
+        "error"
+      );
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
+
+  // Handle AI-powered follow-up
+  const handleFollowUp = async (lead: Lead) => {
+    setSelectedLead(lead);
+    setIsEmailDialogOpen(true);
+
+    // Default prompt based on lead status
+    const defaultPrompt = getDefaultFollowUpPrompt(lead.status);
+    setFollowUpPrompt(defaultPrompt);
+  };
+
+  // Generate follow-up recommendation
+  const generateFollowUp = async () => {
+    if (!selectedLead || !followUpPrompt.trim()) return;
+
+    setIsGeneratingFollowUp(true);
+    try {
+      const recommendation = await generateFollowUpRecommendation(
+        selectedLead,
+        followUpPrompt
+      );
+      setFollowUpRecommendation(recommendation);
+    } catch (error) {
+      console.error("Error generating follow-up recommendation:", error);
+      showNotification("Failed to generate follow-up recommendation", "error");
+    } finally {
+      setIsGeneratingFollowUp(false);
+    }
+  };
+
+  // Get default follow-up prompt based on lead status
+  const getDefaultFollowUpPrompt = (status: Lead["status"]): string => {
+    switch (status) {
+      case "new":
+        return "What's the best approach to qualify this new lead?";
+      case "contacted":
+        return "How should I follow up with this lead who hasn't responded yet?";
+      case "qualified":
+        return "What's the best way to move this qualified lead to the proposal stage?";
+      case "proposal":
+        return "How can I effectively follow up on the proposal I sent?";
+      case "negotiation":
+        return "What negotiation tactics would be effective for this lead?";
+      case "closed":
+        return "What's the best way to ensure customer satisfaction and potential upsells?";
+      default:
+        return "What's the recommended follow-up action for this lead?";
+    }
+  };
+
+  // Show notification
+  const showNotification = (message: string, type: "success" | "error") => {
+    setNotification({ show: true, message, type });
+
+    // Auto-hide notification after 3 seconds
+    setTimeout(() => {
+      setNotification((prev) => ({ ...prev, show: false }));
+    }, 3000);
+  };
+
+  // Send email (simulated)
+  const sendEmail = () => {
+    // In a real application, this would call your backend API to send the email
+    showNotification(
+      `Follow-up email sent to ${selectedLead?.name} at ${selectedLead?.email}`,
+      "success"
+    );
+    setIsEmailDialogOpen(false);
+
+    // Update the lead's lastContact date
+    if (selectedLead) {
+      setLeads(
+        leads.map((lead) =>
+          lead.id === selectedLead.id
+            ? { ...lead, lastContact: new Date() }
+            : lead
+        )
+      );
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Notification */}
+      {notification.show && (
+        <div
+          className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg max-w-md transition-opacity duration-300 ${
+            notification.type === "success"
+              ? "bg-green-100 border-l-4 border-green-500 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+              : "bg-red-100 border-l-4 border-red-500 text-red-800 dark:bg-red-900/50 dark:text-red-300"
+          }`}
+        >
+          <div className="flex items-center">
+            {notification.type === "success" ? (
+              <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 mr-2 flex-shrink-0" />
+            )}
+            <p>{notification.message}</p>
+          </div>
+        </div>
+      )}
+
       {/* Header with title and action button */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
@@ -642,140 +1027,336 @@ const LeadManagement: React.FC = () => {
         </Card>
       </div>
 
-      {/* Tag filters */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center">
-          <Filter className="h-4 w-4 mr-1" /> Filters:
-        </span>
-        <div className="flex flex-wrap gap-1.5">
-          {allTags.map((tag) => (
-            <Badge
-              key={tag}
-              variant={activeFilter === tag ? "default" : "outline"}
-              className="cursor-pointer"
-              onClick={() => setActiveFilter(activeFilter === tag ? null : tag)}
+      {/* Tag filters and View Toggle */}
+      <div className="flex flex-col sm:flex-row justify-between gap-4">
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center">
+            <Filter className="h-4 w-4 mr-1" /> Filters:
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {allTags.map((tag) => (
+              <Badge
+                key={tag}
+                variant={activeFilter === tag ? "default" : "outline"}
+                className="cursor-pointer"
+                onClick={() =>
+                  setActiveFilter(activeFilter === tag ? null : tag)
+                }
+              >
+                {tag}
+                {activeFilter === tag && (
+                  <XCircle
+                    className="h-3 w-3 ml-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilter(null);
+                    }}
+                  />
+                )}
+              </Badge>
+            ))}
+          </div>
+          {activeFilter && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveFilter(null)}
+              className="h-7 px-2 text-xs"
             >
-              {tag}
-              {activeFilter === tag && (
-                <XCircle
-                  className="h-3 w-3 ml-1"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveFilter(null);
-                  }}
-                />
-              )}
-            </Badge>
-          ))}
+              Clear filter
+            </Button>
+          )}
         </div>
-        {activeFilter && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setActiveFilter(null)}
-            className="h-7 px-2 text-xs"
-          >
-            Clear filter
-          </Button>
-        )}
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            View:
+          </span>
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-md p-1">
+            <Button
+              variant={viewMode === "kanban" ? "default" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-8 px-2",
+                viewMode === "kanban"
+                  ? ""
+                  : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
+              )}
+              onClick={() => setViewMode("kanban")}
+            >
+              <Kanban className="h-4 w-4 mr-1" /> Kanban
+            </Button>
+            <Button
+              variant={viewMode === "table" ? "default" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-8 px-2",
+                viewMode === "table"
+                  ? ""
+                  : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
+              )}
+              onClick={() => setViewMode("table")}
+            >
+              <List className="h-4 w-4 mr-1" /> Table
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {/* Kanban Board */}
+      {/* Kanban Board or Table View */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
         onDragStart={handleDragStart}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mt-6">
-          {statusColumns.map((column) => (
-            <div
-              key={column.id}
-              className="flex flex-col bg-gray-50 dark:bg-gray-900 rounded-lg overflow-hidden h-[calc(100vh-280px)]"
-            >
+        {viewMode === "kanban" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mt-6">
+            {statusColumns.map((column) => (
               <div
-                className={cn(
-                  "flex items-center px-4 py-3",
-                  `bg-${column.color}-50 dark:bg-${column.color}-900/20`,
-                  `border-b border-${column.color}-100 dark:border-${column.color}-900/30`
-                )}
+                key={column.id}
+                className="flex flex-col bg-gray-50 dark:bg-gray-900 rounded-lg overflow-hidden h-[calc(100vh-280px)]"
               >
-                <column.icon
-                  className={cn(
-                    "h-5 w-5 mr-2",
-                    `text-${column.color}-500 dark:text-${column.color}-400`
-                  )}
-                />
-                <h3 className="font-medium text-gray-900 dark:text-white flex-1">
-                  {column.title}
-                </h3>
                 <div
                   className={cn(
-                    "px-1.5 py-0.5 text-xs font-medium rounded-full",
-                    `bg-${column.color}-100 text-${column.color}-800`,
-                    `dark:bg-${column.color}-900/50 dark:text-${column.color}-300`
+                    "flex items-center px-4 py-3",
+                    `bg-${column.color}-50 dark:bg-${column.color}-900/20`,
+                    `border-b border-${column.color}-100 dark:border-${column.color}-900/30`
                   )}
                 >
-                  {
-                    filteredLeads.filter((lead) => lead.status === column.id)
-                      .length
-                  }
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                <SortableContext
-                  items={filteredLeads
-                    .filter((lead) => lead.status === column.id)
-                    .map((l) => l.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <AnimatePresence>
-                    {filteredLeads
-                      .filter((lead) => lead.status === column.id)
-                      .map((lead) => (
-                        <motion.div
-                          key={lead.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <LeadCard
-                            lead={lead}
-                            onClick={() => setSelectedLead(lead)}
-                          />
-                        </motion.div>
-                      ))}
-                  </AnimatePresence>
-                </SortableContext>
-
-                {filteredLeads.filter((lead) => lead.status === column.id)
-                  .length === 0 && (
-                  <div className="flex flex-col items-center justify-center h-24 text-center text-gray-400 dark:text-gray-600">
-                    <p className="text-sm mb-2">No leads in this stage</p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsAddingLead(true)}
-                      className="text-xs h-7"
-                    >
-                      <Plus className="h-3 w-3 mr-1" /> Add Lead
-                    </Button>
+                  <column.icon
+                    className={cn(
+                      "h-5 w-5 mr-2",
+                      `text-${column.color}-500 dark:text-${column.color}-400`
+                    )}
+                  />
+                  <h3 className="font-medium text-gray-900 dark:text-white flex-1">
+                    {column.title}
+                  </h3>
+                  <div
+                    className={cn(
+                      "px-1.5 py-0.5 text-xs font-medium rounded-full",
+                      `bg-${column.color}-100 text-${column.color}-800`,
+                      `dark:bg-${column.color}-900/50 dark:text-${column.color}-300`
+                    )}
+                  >
+                    {
+                      filteredLeads.filter((lead) => lead.status === column.id)
+                        .length
+                    }
                   </div>
-                )}
+                </div>
+
+                <DropColumn id={column.id}>
+                  <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                    <SortableContext
+                      items={filteredLeads
+                        .filter((lead) => lead.status === column.id)
+                        .map((l) => l.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <AnimatePresence>
+                        {filteredLeads
+                          .filter((lead) => lead.status === column.id)
+                          .map((lead) => (
+                            <motion.div
+                              key={lead.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <LeadCard
+                                lead={lead}
+                                onClick={() => setSelectedLead(lead)}
+                              />
+                            </motion.div>
+                          ))}
+                      </AnimatePresence>
+                    </SortableContext>
+
+                    {filteredLeads.filter((lead) => lead.status === column.id)
+                      .length === 0 && (
+                      <div className="flex flex-col items-center justify-center h-24 text-center text-gray-400 dark:text-gray-600">
+                        <p className="text-sm mb-2">No leads in this stage</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setIsAddingLead(true)}
+                          className="text-xs h-7"
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Lead
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </DropColumn>
               </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mt-6">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => handleSort("name")}
+                    >
+                      <div className="flex items-center">
+                        Name
+                        {sortConfig.key === "name" &&
+                          (sortConfig.direction === "asc" ? (
+                            <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                          ))}
+                        {sortConfig.key !== "name" && (
+                          <ArrowUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => handleSort("company")}
+                    >
+                      <div className="flex items-center">
+                        Company
+                        {sortConfig.key === "company" &&
+                          (sortConfig.direction === "asc" ? (
+                            <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                          ))}
+                        {sortConfig.key !== "company" && (
+                          <ArrowUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => handleSort("status")}
+                    >
+                      <div className="flex items-center">
+                        Status
+                        {sortConfig.key === "status" &&
+                          (sortConfig.direction === "asc" ? (
+                            <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                          ))}
+                        {sortConfig.key !== "status" && (
+                          <ArrowUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => handleSort("score")}
+                    >
+                      <div className="flex items-center">
+                        Score
+                        {sortConfig.key === "score" &&
+                          (sortConfig.direction === "asc" ? (
+                            <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                          ))}
+                        {sortConfig.key !== "score" && (
+                          <ArrowUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => handleSort("value")}
+                    >
+                      <div className="flex items-center">
+                        Value
+                        {sortConfig.key === "value" &&
+                          (sortConfig.direction === "asc" ? (
+                            <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                          ))}
+                        {sortConfig.key !== "value" && (
+                          <ArrowUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => handleSort("nextFollowUp")}
+                    >
+                      <div className="flex items-center">
+                        Follow-up
+                        {sortConfig.key === "nextFollowUp" &&
+                          (sortConfig.direction === "asc" ? (
+                            <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                          ))}
+                        {sortConfig.key !== "nextFollowUp" && (
+                          <ArrowUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
+                        )}
+                      </div>
+                    </th>
+                    <th scope="col" className="px-4 py-3">
+                      Tags
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-right">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedLeads.map((lead) => (
+                    <TableRow key={lead.id} lead={lead} />
+                  ))}
+                </tbody>
+              </table>
+
+              {sortedLeads.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-gray-500 dark:text-gray-400">
+                  <p className="mb-3">No leads found</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAddingLead(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add Lead
+                  </Button>
+                </div>
+              )}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
 
         <DragOverlay>
           {activeDragId ? (
             <div className="scale-105 shadow-xl opacity-90">
-              <LeadCard
-                lead={leads.find((l) => l.id === activeDragId)!}
-                onClick={() => {}}
-              />
+              {viewMode === "kanban" ? (
+                <LeadCard
+                  lead={leads.find((l) => l.id === activeDragId)!}
+                  onClick={() => {}}
+                />
+              ) : (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[300px]">
+                  <div className="font-medium">
+                    {leads.find((l) => l.id === activeDragId)?.name}
+                  </div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {leads.find((l) => l.id === activeDragId)?.company}
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
         </DragOverlay>
@@ -1008,13 +1589,35 @@ const LeadManagement: React.FC = () => {
                   </div>
 
                   <div className="flex justify-between pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full sm:w-auto"
-                    >
-                      <Mail className="h-4 w-4 mr-2" /> Send Email
-                    </Button>
+                    <div className="relative group">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={() => handleEmailFollowUp(selectedLead)}
+                      >
+                        <Mail className="h-4 w-4 mr-2" /> Send Email
+                      </Button>
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                        Generate AI email script based on lead stage
+                      </div>
+                    </div>
+
+                    {/* Add new AI Follow-up Button */}
+                    <div className="relative group">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={() => handleFollowUp(selectedLead)}
+                      >
+                        <BellRing className="h-4 w-4 mr-2" /> Follow Up
+                      </Button>
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+                        Get AI-powered follow-up recommendations
+                      </div>
+                    </div>
+
                     <Button
                       variant="outline"
                       size="sm"
@@ -1088,6 +1691,225 @@ const LeadManagement: React.FC = () => {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Script Dialog */}
+      <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Email Follow-up</DialogTitle>
+            <DialogDescription>
+              Send a personalized follow-up email to {selectedLead?.name} at{" "}
+              {selectedLead?.company}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 my-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium">
+                  AI-Generated Email Template
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Based on {selectedLead?.status} stage
+                </p>
+              </div>
+
+              {!isGeneratingScript && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(emailScript);
+                    showNotification(
+                      "Email template copied to clipboard",
+                      "success"
+                    );
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-1" /> Copy
+                </Button>
+              )}
+            </div>
+
+            {isGeneratingScript ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <span className="ml-2">
+                  Generating personalized email script...
+                </span>
+              </div>
+            ) : (
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 whitespace-pre-wrap text-sm">
+                {emailScript}
+              </div>
+            )}
+
+            <div className="mt-6">
+              <h3 className="text-sm font-medium mb-2">
+                Customize Email (Optional)
+              </h3>
+              <Textarea
+                value={customEmail}
+                onChange={(e) => setCustomEmail(e.target.value)}
+                className="min-h-[200px]"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsEmailDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={sendEmail}
+              disabled={isGeneratingScript || !customEmail.trim()}
+            >
+              <Send className="h-4 w-4 mr-1" /> Send Email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Follow-up Recommendation Dialog */}
+      <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>AI-Powered Follow-up</DialogTitle>
+            <DialogDescription>
+              Get personalized follow-up recommendations for{" "}
+              {selectedLead?.name} at {selectedLead?.company}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 my-4">
+            <div>
+              <h3 className="text-sm font-medium mb-2">
+                What would you like to know?
+              </h3>
+              <div className="flex gap-2">
+                <Textarea
+                  value={followUpPrompt}
+                  onChange={(e) => setFollowUpPrompt(e.target.value)}
+                  placeholder="Enter your question about how to follow up with this lead..."
+                  className="flex-1"
+                />
+                <Button
+                  onClick={generateFollowUp}
+                  disabled={isGeneratingFollowUp || !followUpPrompt.trim()}
+                  className="self-end"
+                >
+                  {isGeneratingFollowUp ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ClipboardCheck className="h-4 w-4 mr-1" />
+                  )}
+                  {isGeneratingFollowUp ? "Generating..." : "Get Advice"}
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-medium mb-2">Suggested Questions</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[
+                  "What's the best next step with this lead?",
+                  "How can I improve conversion chances?",
+                  "What objections might they have?",
+                  "When should I follow up next?",
+                  "What resources should I share?",
+                  "How can I add more value?",
+                ].map((question, index) => (
+                  <Button
+                    key={index}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFollowUpPrompt(question)}
+                    className="justify-start"
+                  >
+                    {question}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {followUpRecommendation && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium mb-2">
+                    AI Recommendation
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(followUpRecommendation);
+                      showNotification(
+                        "Recommendation copied to clipboard",
+                        "success"
+                      );
+                    }}
+                  >
+                    <Copy className="h-4 w-4 mr-1" /> Copy
+                  </Button>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 whitespace-pre-wrap text-sm">
+                  {followUpRecommendation}
+                </div>
+              </div>
+            )}
+
+            {!followUpRecommendation && !isGeneratingFollowUp && (
+              <div className="flex flex-col items-center justify-center py-10 text-center text-gray-500">
+                <ClipboardCheck className="h-12 w-12 mb-2 opacity-30" />
+                <p>
+                  Enter your question and click "Get Advice" to receive
+                  AI-powered follow-up recommendations
+                </p>
+              </div>
+            )}
+
+            {isGeneratingFollowUp && (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <span className="ml-2">
+                  Generating personalized follow-up recommendations...
+                </span>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsEmailDialogOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={() => {
+                setIsEmailDialogOpen(false);
+                // Update the lead's lastContact date
+                if (selectedLead) {
+                  setLeads(
+                    leads.map((lead) =>
+                      lead.id === selectedLead.id
+                        ? { ...lead, lastContact: new Date() }
+                        : lead
+                    )
+                  );
+                  showNotification("Follow-up action recorded", "success");
+                }
+              }}
+              disabled={!followUpRecommendation}
+            >
+              Mark as Followed Up
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

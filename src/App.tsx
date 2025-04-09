@@ -5,6 +5,7 @@ import {
   Route,
   Navigate,
 } from "react-router-dom";
+import { ChatProvider } from "./context/ChatContext"; // Add this import
 import Dashboard from "./components/dashboard/DashboardComponent";
 import RevenueAnalytics from "./components/analytics/RevenueAnalyticsComponent";
 import LeadManagement from "./components/leads/LeadManagement";
@@ -17,6 +18,7 @@ import Calendar from "./components/calendar/Calendar";
 import HelpSupport from "./components/support/HelpSupport";
 import Sidebar from "./components/Sidebar";
 import { ThemeToggle } from "./components/ui/ThemeToggle";
+import ChatComponent from "./components/chat/ChatComponent";
 
 // Auth components
 import Login from "./components/auth/login";
@@ -224,6 +226,8 @@ function AppContent() {
           }
         />
       </Routes>
+      {user && <ChatComponent />}{" "}
+      {/* Add this line to show chat only for logged-in users */}
     </Router>
   );
 }
@@ -232,7 +236,9 @@ function App() {
   return (
     <AuthProvider>
       <NotificationsProvider>
-        <AppContent />
+        <ChatProvider>
+          <AppContent />
+        </ChatProvider>
       </NotificationsProvider>
     </AuthProvider>
   );

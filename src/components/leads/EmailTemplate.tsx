@@ -1,42 +1,90 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Mail, Send, Clock, Settings } from 'lucide-react';
+import React, { useState } from "react";
+import { motion } from "framer-motion";
+import { Mail, Clock, Settings, Trash2, Save } from "lucide-react";
 
 interface EmailTemplate {
   id: string;
   name: string;
   subject: string;
   content: string;
-  trigger: 'immediate' | '24h' | '3d' | '7d' | '14d' | '30d';
+  trigger: "immediate" | "24h" | "3d" | "7d" | "14d" | "30d";
 }
 
 export default function EmailTemplates() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([
     {
-      id: '1',
-      name: 'Initial Contact',
-      subject: 'Welcome to {{company}}',
-      content: 'Dear {{name}},\n\nThank you for your interest in {{company}}...',
-      trigger: 'immediate'
+      id: "1",
+      name: "Initial Contact",
+      subject: "Welcome to {{company}}",
+      content:
+        "Dear {{name}},\n\nThank you for your interest in {{company}}...",
+      trigger: "immediate",
     },
     {
-      id: '2',
-      name: '3-Day Follow-up',
-      subject: 'Following up on your interest',
-      content: 'Hi {{name}},\n\nI wanted to follow up on our previous conversation...',
-      trigger: '3d'
-    }
+      id: "2",
+      name: "3-Day Follow-up",
+      subject: "Following up on your interest",
+      content:
+        "Hi {{name}},\n\nI wanted to follow up on our previous conversation...",
+      trigger: "3d",
+    },
   ]);
 
-  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<EmailTemplate | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedTemplate, setEditedTemplate] = useState<EmailTemplate | null>(
+    null
+  );
 
   const triggerLabels = {
-    immediate: 'Immediate',
-    '24h': '24 Hours',
-    '3d': '3 Days',
-    '7d': '7 Days',
-    '14d': '14 Days',
-    '30d': '30 Days'
+    immediate: "Immediate",
+    "24h": "24 Hours",
+    "3d": "3 Days",
+    "7d": "7 Days",
+    "14d": "14 Days",
+    "30d": "30 Days",
+  };
+
+  const handleTemplateSelect = (template: EmailTemplate) => {
+    setSelectedTemplate(template);
+    setEditedTemplate({ ...template });
+    setIsEditing(false);
+  };
+
+  const handleTemplateUpdate = () => {
+    if (editedTemplate) {
+      setTemplates((prevTemplates) =>
+        prevTemplates.map((template) =>
+          template.id === editedTemplate.id ? editedTemplate : template
+        )
+      );
+      setSelectedTemplate(editedTemplate);
+      setIsEditing(false);
+    }
+  };
+
+  const handleTemplateDelete = (templateId: string) => {
+    setTemplates((prevTemplates) =>
+      prevTemplates.filter((template) => template.id !== templateId)
+    );
+    if (selectedTemplate?.id === templateId) {
+      setSelectedTemplate(null);
+      setEditedTemplate(null);
+    }
+  };
+
+  const handleTemplateCreate = () => {
+    const newTemplate: EmailTemplate = {
+      id: Date.now().toString(),
+      name: "New Template",
+      subject: "Subject",
+      content: "Content",
+      trigger: "immediate",
+    };
+    setTemplates((prev) => [...prev, newTemplate]);
+    handleTemplateSelect(newTemplate);
+    setIsEditing(true);
   };
 
   return (
@@ -52,7 +100,10 @@ export default function EmailTemplates() {
             <h3 className="text-lg font-medium text-gray-900 dark:text-white">
               Available Templates
             </h3>
-            <button className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            <button
+              onClick={handleTemplateCreate}
+              className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
               <Mail className="h-4 w-4 mr-2" />
               New Template
             </button>
@@ -65,10 +116,10 @@ export default function EmailTemplates() {
               animate={{ opacity: 1, y: 0 }}
               className={`p-4 rounded-lg border cursor-pointer transition-colors ${
                 selectedTemplate?.id === template.id
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-blue-500'
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                  : "border-gray-200 dark:border-gray-700 hover:border-blue-500"
               }`}
-              onClick={() => setSelectedTemplate(template)}
+              onClick={() => handleTemplateSelect(template)}
             >
               <div className="flex justify-between items-start">
                 <div>
@@ -96,16 +147,30 @@ export default function EmailTemplates() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  Edit Template
+                  {isEditing ? "Edit Template" : "Template Details"}
                 </h3>
                 <div className="flex space-x-2">
-                  <button className="p-2 text-gray-400 hover:text-gray-500">
+                  <button
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="p-2 text-gray-400 hover:text-gray-500"
+                  >
                     <Settings className="h-5 w-5" />
                   </button>
-                  <button className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                    <Send className="h-4 w-4 mr-2" />
-                    Test Send
+                  <button
+                    onClick={() => handleTemplateDelete(selectedTemplate.id)}
+                    className="p-2 text-red-400 hover:text-red-500"
+                  >
+                    <Trash2 className="h-5 w-5" />
                   </button>
+                  {isEditing && (
+                    <button
+                      onClick={handleTemplateUpdate}
+                      className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -116,7 +181,15 @@ export default function EmailTemplates() {
                   </label>
                   <input
                     type="text"
-                    value={selectedTemplate.name}
+                    value={
+                      isEditing ? editedTemplate?.name : selectedTemplate.name
+                    }
+                    onChange={(e) =>
+                      setEditedTemplate((prev) =>
+                        prev ? { ...prev, name: e.target.value } : null
+                      )
+                    }
+                    disabled={!isEditing}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
                   />
                 </div>
@@ -127,7 +200,17 @@ export default function EmailTemplates() {
                   </label>
                   <input
                     type="text"
-                    value={selectedTemplate.subject}
+                    value={
+                      isEditing
+                        ? editedTemplate?.subject
+                        : selectedTemplate.subject
+                    }
+                    onChange={(e) =>
+                      setEditedTemplate((prev) =>
+                        prev ? { ...prev, subject: e.target.value } : null
+                      )
+                    }
+                    disabled={!isEditing}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
                   />
                 </div>
@@ -138,7 +221,17 @@ export default function EmailTemplates() {
                   </label>
                   <textarea
                     rows={8}
-                    value={selectedTemplate.content}
+                    value={
+                      isEditing
+                        ? editedTemplate?.content
+                        : selectedTemplate.content
+                    }
+                    onChange={(e) =>
+                      setEditedTemplate((prev) =>
+                        prev ? { ...prev, content: e.target.value } : null
+                      )
+                    }
+                    disabled={!isEditing}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
                   />
                 </div>
@@ -148,7 +241,23 @@ export default function EmailTemplates() {
                     Trigger Timing
                   </label>
                   <select
-                    value={selectedTemplate.trigger}
+                    value={
+                      isEditing
+                        ? editedTemplate?.trigger
+                        : selectedTemplate.trigger
+                    }
+                    onChange={(e) =>
+                      setEditedTemplate((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              trigger: e.target
+                                .value as EmailTemplate["trigger"],
+                            }
+                          : null
+                      )
+                    }
+                    disabled={!isEditing}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
                   >
                     {Object.entries(triggerLabels).map(([value, label]) => (
