@@ -54,6 +54,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTheme } from "../../hooks/useTheme";
+import { useNotifications } from "../../context/NotificationsContext";
 
 interface DashboardStats {
   totalLeads: number;
@@ -243,6 +244,7 @@ const DashboardComponent: React.FC<DashboardComponentProps> = ({
   onError,
 }) => {
   const { theme, toggleTheme } = useTheme();
+  const { addNotification } = useNotifications();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -250,6 +252,32 @@ const DashboardComponent: React.FC<DashboardComponentProps> = ({
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  // Action handlers for quick action buttons
+  const handleMessageAction = () => {
+    addNotification({
+      title: "New Message",
+      message:
+        "You've started a new message. The messaging feature is now active.",
+      type: "info",
+    });
+  };
+
+  const handleCallAction = () => {
+    addNotification({
+      title: "Call Initiated",
+      message: "Your call is being connected. Please wait for the connection.",
+      type: "success",
+    });
+  };
+
+  const handleEmailAction = () => {
+    addNotification({
+      title: "Email Composer",
+      message: "Email composer has been opened. Draft your email now.",
+      type: "info",
+    });
+  };
 
   const chartData = useMemo(
     () => [
@@ -629,30 +657,38 @@ const DashboardComponent: React.FC<DashboardComponentProps> = ({
               transition={{ delay: 0.3 }}
               className="bg-white dark:bg-gray-800 p-2 rounded-full shadow-lg border border-gray-200 dark:border-gray-700"
             >
-              {["message", "call", "email"].map((action, index) => (
-                <motion.button
-                  key={action}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 + 0.3 }}
-                  className={cn(
-                    "p-3 rounded-full shadow-md block mb-2 last:mb-0",
-                    action === "message"
-                      ? "bg-blue-500 hover:bg-blue-600"
-                      : action === "call"
-                      ? "bg-green-500 hover:bg-green-600"
-                      : "bg-purple-500 hover:bg-purple-600",
-                    "text-white"
-                  )}
-                  aria-label={`Quick ${action}`}
-                >
-                  {action === "message" && (
-                    <MessageSquare className="h-5 w-5" />
-                  )}
-                  {action === "call" && <Phone className="h-5 w-5" />}
-                  {action === "email" && <Mail className="h-5 w-5" />}
-                </motion.button>
-              ))}
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="p-3 rounded-full shadow-md block mb-2 bg-blue-500 hover:bg-blue-600 text-white"
+                aria-label="Quick message"
+                onClick={handleMessageAction}
+              >
+                <MessageSquare className="h-5 w-5" />
+              </motion.button>
+
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="p-3 rounded-full shadow-md block mb-2 bg-green-500 hover:bg-green-600 text-white"
+                aria-label="Quick call"
+                onClick={handleCallAction}
+              >
+                <Phone className="h-5 w-5" />
+              </motion.button>
+
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="p-3 rounded-full shadow-md block mb-2 last:mb-0 bg-purple-500 hover:bg-purple-600 text-white"
+                aria-label="Quick email"
+                onClick={handleEmailAction}
+              >
+                <Mail className="h-5 w-5" />
+              </motion.button>
             </motion.div>
           </AnimatePresence>
         </div>
