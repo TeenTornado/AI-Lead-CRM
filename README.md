@@ -43,9 +43,9 @@ An AI-powered Customer Relationship Management system with authentication and ro
 3. Create a `.env` file in the server directory with the following content:
 
    ```
-   MONGODB_URI=mongodb+srv://admin:sreeram@cluster0.d49rv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-   JWT_SECRET=7023f50e70713797a8b54507815ece3c8105c5f7eae0fb68c14885b9dbf99788b90e93dfcba614d6b2abbaf539f46a133a1cf25b02456abac35928952a0edc55
-   PORT=5000
+   MONGODB_URI=""
+   JWT_SECRET=""
+   PORT=""
    ```
 
 4. Start the backend server:
